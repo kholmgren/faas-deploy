@@ -5,13 +5,17 @@ metadata:
   labels:
     app: invoker
 spec:
+  volumes:
+    - name: manifest-data
+      configMap:
+        name: manifest-config
   containers:
     - name: invoker
-      image: docker.io/kettil/materialized-invoker:latest
-      env:
-        - name: PORT
-          value: '8002'
+      image: materialized-invoker
       ports:
         - name: http
-          containerPort: 8002
+          containerPort: 8080
           protocol: TCP
+      volumeMounts:
+        - name: manifest-data
+          mountPath: /etc/faas

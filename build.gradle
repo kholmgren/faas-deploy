@@ -20,9 +20,9 @@ ext {
     workDir = new File(projectDir, 'work')
 
     dockerPrefix = 'docker.io/kettil'
-    dockerImage = "${dockerPrefix}/${rootProject.name}:latest"
+    dockerImage = null
 
-    invokerDockerImage = 'docker.io/kettil/faas-invoker:latest'
+    invokerDockerImage = 'docker.io/kettil/faas-invoker'
     dockerFile = new File(workDir, "Dockerfile")
 
     manifest = null
@@ -57,6 +57,8 @@ tasks.register("readManifest") {
     it.doLast {
         manifest = new Yaml().load(
                 Files.newInputStream(new File(workDir, "manifest.yaml").toPath()))
+
+        dockerImage = "${dockerPrefix}/${manifest.name}"
     }
 }
 
@@ -68,7 +70,7 @@ tasks.register("buildRepo") {
             if (new File(workDir, 'gradlew').exists())
                 exec {
                     workingDir workDir
-                    commandLine "./gradlew", "clean", "jar"
+                    commandLine "./gradlew", "clean", "shadowJar"
                 }
             else if (new File(workDir, 'mvnw').exists())
                 exec {
@@ -81,7 +83,7 @@ tasks.register("buildRepo") {
             if (new File(workDir, 'gradlew.bat').exists())
                 exec {
                     workingDir workDir
-                    commandLine 'gradlew.bat', 'clean', 'jar'
+                    commandLine 'gradlew.bat', 'clean', 'shadowJar'
                 }
             else if (new File(workDir, 'mvnw.bat').exists())
                 exec {
@@ -107,7 +109,7 @@ tasks.register("writeDockerfile") {
         dockerFile.newPrintWriter().withCloseable {
             it.printf("FROM %s%n", invokerDockerImage)
             it.printf("COPY %s /%n", manifest.location)
-            it.printf('CMD java $JAVA_OPTS -jar /%s%n', new File(manifest.location).name)
+//            it.printf("COPY %s /%n", "manifest.yaml")
         }
     }
 }
@@ -134,22 +136,22 @@ tasks.register("adjustTemplates") {
     it.doLast {
         exec {
             workingDir new File(workDir, "kube/kustomize")
-            commandLine 'kustomize', "edit", "set", "image", "docker.io/kettil/materialized-invoker:latest=${dockerImage}"
+            commandLine 'kustomize', "edit", "set", "image", "materialized-invoker=${dockerImage}"
         }
 
-        exec {
-            workingDir new File(workDir, "kube/kustomize")
-            commandLine 'kustomize', "edit", "set", "namespace", "faas"
-        }
+//        exec {
+//            workingDir new File(workDir, "kube/kustomize")
+//            commandLine 'kustomize', "edit", "set", "namespace", "faas"
+//        }
 
-        exec {
-            workingDir new File(workDir, "kube/kustomize")
-            commandLine 'kustomize', "edit", "set", "nameprefix", "${manifest.name}-"
-        }
+//        exec {
+//            workingDir new File(workDir, "kube/kustomize")
+//            commandLine 'kustomize', "edit", "set", "nameprefix", "${manifest.name}-"
+//        }
 
         exec {
             workingDir workDir
-            commandLine 'sed', "s%docker.io/kettil/materialized-invoker%${dockerImage}%", "skaffold.yaml"
+            commandLine 'sed', '-i', "s%materialized-invoker%${dockerImage}%", "skaffold.yaml"
         }
     }
 }
@@ -185,6 +187,11 @@ tasks.register("delete") {
         exec {
             workingDir workDir
             commandLine 'skaffold', 'delete'
+        }
+
+        exec {
+            workingDir projectDir
+            commandLine 'rm', '-rf', 'work'
         }
     }
 }
