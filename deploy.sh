@@ -74,4 +74,4 @@ setup_colors
 
 #rm -rf "$script_dir/work"
 #./gradlew "-Drepo=${args[@]}" downloadRepo
-./gradlew --info "-Drepo=${args[@]}" "${args[1]}"
+./gradlew --info  --no-daemon "-Drepo=${args[@]}" "${args[1]}"

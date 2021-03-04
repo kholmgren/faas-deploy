@@ -1,7 +1,3 @@
-import org.yaml.snakeyaml.Yaml
-
-import java.nio.file.Files
-
 buildscript {
     repositories {
         mavenCentral()
@@ -10,11 +6,18 @@ buildscript {
 
     dependencies {
         classpath 'org.yaml:snakeyaml:1.28'
+        classpath 'org.apache.commons:commons-lang3:3.12.0'
+
     }
 }
 
+import org.apache.commons.lang3.SystemUtils
+import org.yaml.snakeyaml.Yaml
+
+import java.nio.file.Files
+
 ext {
-    workDir = new File(projectDir, '/work')
+    workDir = new File(projectDir, 'work')
 
     dockerPrefix = 'docker.io/kettil'
     dockerImage = "${dockerPrefix}/${rootProject.name}:latest"
@@ -26,8 +29,8 @@ ext {
     artifact = null
 }
 
-task clean() {
-    doLast {
+tasks.register("clean") {
+    it.doLast {
         if (workDir.exists())
             exec {
                 commandLine 'rm', '-rf', workDir
@@ -35,71 +38,84 @@ task clean() {
     }
 }
 
-task downloadRepo {
-    dependsOn clean
+tasks.register("downloadRepo") {
+    it.dependsOn clean
 
-    doLast {
+    it.doLast {
         Files.createDirectories(workDir.toPath())
 
-        def repo = System.getProperty("repo")
         exec {
             workingDir workDir
-            commandLine 'git', 'clone', repo, './'
+            commandLine 'git', 'clone', System.getProperty("repo"), './'
         }
     }
 }
 
-task readManifest {
-    dependsOn downloadRepo
+tasks.register("readManifest") {
+    it.dependsOn downloadRepo
 
-    doLast {
-        def inputStream = Files.newInputStream(new File(workDir, "manifest.yaml").toPath())
-        def yaml = new Yaml()
-        manifest = yaml.load(inputStream)
+    it.doLast {
+        manifest = new Yaml().load(
+                Files.newInputStream(new File(workDir, "manifest.yaml").toPath()))
     }
 }
 
-task buildRepo {
-    dependsOn readManifest
+tasks.register("buildRepo") {
+    it.dependsOn readManifest
 
-    doLast {
-        if (new File(workDir, 'gradlew').exists())
-            exec {
-                workingDir workDir
-                commandLine './gradlew', 'clean', 'jar'
-            }
-        else if (new File(workDir, 'mvnw').exists())
-            exec {
-                workingDir workDir
-                commandLine './mvnw', 'clean', 'package'
-            }
-        else
-            throw new Exception("Neither gradlew nor mvnw are available in repo")
+    it.doLast {
+        if (SystemUtils.IS_OS_LINUX || SystemUtils.IS_OS_MAC) {
+            if (new File(workDir, 'gradlew').exists())
+                exec {
+                    workingDir workDir
+                    commandLine "./gradlew", "clean", "jar"
+                }
+            else if (new File(workDir, 'mvnw').exists())
+                exec {
+                    workingDir workDir
+                    commandLine './mvnw', 'clean', 'package'
+                }
+            else
+                throw new Exception("Neither gradlew nor mvnw are available in repo")
+        } else if (SystemUtils.IS_OS_WINDOWS) {
+            if (new File(workDir, 'gradlew.bat').exists())
+                exec {
+                    workingDir workDir
+                    commandLine 'gradlew.bat', 'clean', 'jar'
+                }
+            else if (new File(workDir, 'mvnw.bat').exists())
+                exec {
+                    workingDir workDir
+                    commandLine 'mvnw.bat', 'clean', 'package'
+                }
+            else
+                throw new GradleException("Neither gradlew nor mvnw are available in repo")
+        } else {
+            throw new GradleException("Unknown OS")
+        }
 
         artifact = new File(workDir, manifest.location)
         if (!artifact.exists())
-            throw new Exception("Artifact '" + artifact.toString() + "' is missing after build")
+            throw new GradleException("Artifact '" + artifact.toString() + "' is missing after build")
     }
 }
 
-task writeDockerfile {
-    dependsOn buildRepo
+tasks.register("writeDockerfile") {
+    it.dependsOn buildRepo
 
-    doLast {
-        def fileName = new File(manifest.location).name
-
-        dockerFile.text = """
-FROM ${invokerDockerImage}
-COPY ${manifest.location} /
-CMD java \$JAVA_OPTS -jar /${fileName}
-"""
+    it.doLast {
+        dockerFile.newPrintWriter().withCloseable {
+            it.printf("FROM %s%n", invokerDockerImage)
+            it.printf("COPY %s /%n", manifest.location)
+            it.printf('CMD java $JAVA_OPTS -jar /%s%n', new File(manifest.location).name)
+        }
     }
 }
 
-task copyTemplates {
-    dependsOn readManifest
+tasks.register("copyTemplates") {
+    it.dependsOn readManifest
 
-    doLast {
+    it.doLast {
         copy {
             from new File(workDir, "../template")
             into workDir
@@ -112,45 +128,40 @@ task copyTemplates {
     }
 }
 
-task adjustTemplates {
-    dependsOn copyTemplates
+tasks.register("adjustTemplates") {
+    it.dependsOn copyTemplates
 
-    doLast {
+    it.doLast {
         exec {
-            workingDir = new File(workDir, "kube/kustomize")
-            executable = 'kustomize'
-            args = ["edit", "set", "image", "docker.io/kettil/materialized-invoker:latest=${dockerImage}"]
+            workingDir new File(workDir, "kube/kustomize")
+            commandLine 'kustomize', "edit", "set", "image", "docker.io/kettil/materialized-invoker:latest=${dockerImage}"
         }
 
         exec {
-            workingDir = new File(workDir, "kube/kustomize")
-            executable = 'kustomize'
-            args = ["edit", "set", "namespace", "faas"]
+            workingDir new File(workDir, "kube/kustomize")
+            commandLine 'kustomize', "edit", "set", "namespace", "faas"
         }
 
         exec {
-            workingDir = new File(workDir, "kube/kustomize")
-            executable = 'kustomize'
-            args = ["edit", "set", "nameprefix", "${manifest.name}-"]
+            workingDir new File(workDir, "kube/kustomize")
+            commandLine 'kustomize', "edit", "set", "nameprefix", "${manifest.name}-"
         }
 
         exec {
-            workingDir = workDir
-            executable = 'sed'
-            args = ["s%docker.io/kettil/materialized-invoker%${dockerImage}%", "skaffold.yaml"]
+            workingDir workDir
+            commandLine 'sed', "s%docker.io/kettil/materialized-invoker%${dockerImage}%", "skaffold.yaml"
         }
     }
 }
 
-task buildDockerImage(type: Exec) {
-    dependsOn writeDockerfile
-    workingDir workDir
-    commandLine 'docker', 'build', '-t', dockerImage, '.'
+tasks.register("buildDockerImage", Exec) {
+    it.dependsOn writeDockerfile
+    it.workingDir workDir
+    it.commandLine 'docker', 'build', '-t', dockerImage, '.'
 }
 
-task pushDockerImage(type: Exec) {
+tasks.register("pushDockerImage", Exec) {
     dependsOn buildDockerImage
-
     commandLine 'docker', 'push', dockerImage
 
     doLast {
@@ -158,27 +169,22 @@ task pushDockerImage(type: Exec) {
     }
 }
 
+tasks.register("run") {
+    it.dependsOn(adjustTemplates, writeDockerfile)
 
-task run {
-    dependsOn(adjustTemplates, writeDockerfile)
-
-    doLast {
+    it.doLast {
         exec {
             workingDir workDir
-            executable 'skaffold'
-            args 'run'
+            commandLine 'skaffold', 'run'
         }
     }
 }
 
-task delete {
-    dependsOn(adjustTemplates, writeDockerfile)
-
-    doLast {
+tasks.register("delete") {
+    it.doLast {
         exec {
             workingDir workDir
-            executable 'skaffold'
-            args 'delete'
+            commandLine 'skaffold', 'delete'
         }
     }
 }
