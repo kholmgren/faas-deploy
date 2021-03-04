@@ -1,0 +1,17 @@
+kind: Pod
+apiVersion: v1
+metadata:
+  name: invoker
+  labels:
+    app: invoker
+spec:
+  containers:
+    - name: invoker
+      image: docker.io/kettil/materialized-invoker:latest
+      env:
+        - name: PORT
+          value: '8002'
+      ports:
+        - name: http
+          containerPort: 8002
+          protocol: TCP

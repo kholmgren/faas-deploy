@@ -1,0 +1,196 @@
+import java.nio.file.Files
+import java.nio.file.Path
+import org.yaml.snakeyaml.Yaml
+
+//defaultTasks "testMe"
+
+//repositories {
+//    mavenCentral()
+//    mavenLocal()
+//}
+//
+//dependencies {
+//    classpath 'org.yaml:snakeyaml:1.28'
+//}
+
+buildscript {
+    repositories {
+        mavenCentral()
+        mavenLocal()
+    }
+
+    dependencies {
+        classpath 'org.yaml:snakeyaml:1.28'
+    }
+}
+
+ext {
+    workDir = new File(projectDir, '/work')
+
+    dockerPrefix = 'docker.io/kettil'
+    dockerImage = "${dockerPrefix}/${rootProject.name}:latest"
+
+    invokerDockerImage = 'docker.io/kettil/faas-invoker:latest'
+    dockerFile = new File(workDir, "Dockerfile")
+
+    manifest = null
+    artifact = null
+}
+
+task clean() {
+    doLast {
+        if (workDir.exists())
+            exec {
+                commandLine 'rm', '-rf', workDir
+            }
+    }
+}
+
+task downloadRepo {
+    dependsOn clean
+
+    doLast {
+        Files.createDirectories(workDir.toPath())
+
+        def repo = System.getProperty("repo")
+        exec {
+            workingDir workDir
+            commandLine 'git', 'clone', repo, './'
+        }
+    }
+}
+
+task readManifest {
+    dependsOn downloadRepo
+
+    doLast {
+        def inputStream = Files.newInputStream(new File(workDir, "manifest.yaml").toPath())
+        def yaml = new Yaml()
+        manifest = yaml.load(inputStream)
+    }
+}
+
+task buildRepo {
+    dependsOn readManifest
+
+    doLast {
+        if (new File(workDir, 'gradlew').exists())
+            exec {
+                workingDir workDir
+                commandLine './gradlew', 'clean', 'jar'
+            }
+        else if (new File(workDir, 'mvnw').exists())
+            exec {
+                workingDir workDir
+                commandLine './mvnw', 'clean', 'package'
+            }
+        else
+            throw new Exception("Neither gradlew nor mvnw are available in repo")
+
+        artifact = new File(workDir, manifest.location)
+        if (!artifact.exists())
+            throw new Exception("Artifact '" + artifact.toString() + "' is missing after build")
+    }
+}
+
+task writeDockerfile {
+    dependsOn buildRepo
+
+    doLast {
+        def fileName = new File(manifest.location).name
+
+        dockerFile.text = """
+FROM ${invokerDockerImage}
+COPY ${manifest.location} /
+CMD java \$JAVA_OPTS -jar /${fileName}
+"""
+    }
+}
+
+task copyTemplates {
+    dependsOn readManifest
+
+    doLast {
+        copy {
+            from new File(workDir, "../template")
+            into workDir
+        }
+
+        copy {
+            from new File(workDir, "manifest.yaml")
+            into new File(workDir, "kube/kustomize")
+        }
+    }
+}
+
+task adjustTemplates {
+    dependsOn copyTemplates
+
+    doLast {
+        exec {
+            workingDir = new File(workDir, "kube/kustomize")
+            executable = 'kustomize'
+            args = ["edit", "set", "image", "docker.io/kettil/materialized-invoker:latest=${dockerImage}"]
+        }
+
+        exec {
+            workingDir = new File(workDir, "kube/kustomize")
+            executable = 'kustomize'
+            args = ["edit", "set", "namespace", "faas"]
+        }
+
+        exec {
+            workingDir = new File(workDir, "kube/kustomize")
+            executable = 'kustomize'
+            args = ["edit", "set", "nameprefix", "${manifest.name}-"]
+        }
+
+        exec {
+            workingDir = workDir
+            executable = 'sed'
+            args = ["s%docker.io/kettil/materialized-invoker%${dockerImage}%", "skaffold.yaml"]
+        }
+    }
+}
+
+task buildDockerImage(type: Exec) {
+    dependsOn writeDockerfile
+    workingDir workDir
+    commandLine 'docker', 'build', '-t', dockerImage, '.'
+}
+
+task pushDockerImage(type: Exec) {
+    dependsOn buildDockerImage
+
+    commandLine 'docker', 'push', dockerImage
+
+    doLast {
+        println "Pushed Docker image ${dockerImage}"
+    }
+}
+
+
+task run {
+    dependsOn(adjustTemplates, writeDockerfile)
+
+    doLast {
+        exec {
+            workingDir workDir
+            executable 'skaffold'
+            args 'run'
+        }
+    }
+}
+
+task delete {
+    dependsOn(adjustTemplates, writeDockerfile)
+
+    doLast {
+        exec {
+            workingDir workDir
+            executable 'skaffold'
+            args 'delete'
+        }
+    }
+}
+
