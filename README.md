@@ -1,3 +1,5 @@
+# faas-deploy
+
 ```bash
-./run.sh https://github.com/kholmgren/contact-functions.git
+./deploy.sh https://github.com/kholmgren/contact-functions.git run
 ```

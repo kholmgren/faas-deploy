@@ -1,17 +1,6 @@
-import java.nio.file.Files
-import java.nio.file.Path
 import org.yaml.snakeyaml.Yaml
 
-//defaultTasks "testMe"
-
-//repositories {
-//    mavenCentral()
-//    mavenLocal()
-//}
-//
-//dependencies {
-//    classpath 'org.yaml:snakeyaml:1.28'
-//}
+import java.nio.file.Files
 
 buildscript {
     repositories {
@@ -193,4 +182,3 @@ task delete {
         }
     }
 }
-
