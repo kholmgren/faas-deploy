@@ -29,8 +29,8 @@ ext {
     artifact = null
 }
 
-tasks.register("clean") {
-    it.doLast {
+def clean = tasks.register("clean") {
+    doLast {
         if (workDir.exists())
             exec {
                 commandLine 'rm', '-rf', workDir
@@ -38,10 +38,10 @@ tasks.register("clean") {
     }
 }
 
-tasks.register("downloadRepo") {
-    it.dependsOn clean
+def downloadRepo = tasks.register("downloadRepo") {
+    dependsOn clean
 
-    it.doLast {
+    doLast {
         Files.createDirectories(workDir.toPath())
 
         exec {
@@ -51,10 +51,10 @@ tasks.register("downloadRepo") {
     }
 }
 
-tasks.register("readManifest") {
-    it.dependsOn downloadRepo
+def readManifest = tasks.register("readManifest") {
+    dependsOn downloadRepo
 
-    it.doLast {
+    doLast {
         manifest = new Yaml().load(
                 Files.newInputStream(new File(workDir, "manifest.yaml").toPath()))
 
@@ -62,10 +62,10 @@ tasks.register("readManifest") {
     }
 }
 
-tasks.register("buildRepo") {
-    it.dependsOn readManifest
+def buildRepo = tasks.register("buildRepo") {
+    dependsOn readManifest
 
-    it.doLast {
+    doLast {
         if (SystemUtils.IS_OS_LINUX || SystemUtils.IS_OS_MAC) {
             if (new File(workDir, 'gradlew').exists())
                 exec {
@@ -102,10 +102,10 @@ tasks.register("buildRepo") {
     }
 }
 
-tasks.register("writeDockerfile") {
-    it.dependsOn buildRepo
+def writeDockerfile = tasks.register("writeDockerfile") {
+    dependsOn buildRepo
 
-    it.doLast {
+    doLast {
         dockerFile.newPrintWriter().withCloseable {
             it.printf("FROM %s%n", invokerDockerImage)
             it.printf("COPY %s /%n", manifest.location)
@@ -114,10 +114,10 @@ tasks.register("writeDockerfile") {
     }
 }
 
-tasks.register("copyTemplates") {
-    it.dependsOn readManifest
+def copyTemplates = tasks.register("copyTemplates") {
+    dependsOn readManifest
 
-    it.doLast {
+    doLast {
         copy {
             from new File(workDir, "../template")
             into workDir
@@ -130,10 +130,10 @@ tasks.register("copyTemplates") {
     }
 }
 
-tasks.register("adjustTemplates") {
-    it.dependsOn copyTemplates
+def adjustTemplates = tasks.register("adjustTemplates") {
+    dependsOn copyTemplates
 
-    it.doLast {
+    doLast {
         exec {
             workingDir new File(workDir, "kube/kustomize")
             commandLine 'kustomize', "edit", "set", "image", "materialized-invoker=${dockerImage}"
@@ -156,13 +156,13 @@ tasks.register("adjustTemplates") {
     }
 }
 
-tasks.register("buildDockerImage", Exec) {
-    it.dependsOn writeDockerfile
-    it.workingDir workDir
-    it.commandLine 'docker', 'build', '-t', dockerImage, '.'
+def buildDockerImage= tasks.register("buildDockerImage", Exec) {
+    dependsOn writeDockerfile
+    workingDir workDir
+    commandLine 'docker', 'build', '-t', dockerImage, '.'
 }
 
-tasks.register("pushDockerImage", Exec) {
+def pushDockerImage = tasks.register("pushDockerImage", Exec) {
     dependsOn buildDockerImage
     commandLine 'docker', 'push', dockerImage
 
@@ -171,10 +171,10 @@ tasks.register("pushDockerImage", Exec) {
     }
 }
 
-tasks.register("run") {
-    it.dependsOn(adjustTemplates, writeDockerfile)
+def run = tasks.register("run") {
+    dependsOn adjustTemplates, writeDockerfile
 
-    it.doLast {
+    doLast {
         exec {
             workingDir workDir
             commandLine 'skaffold', 'run'
@@ -182,8 +182,8 @@ tasks.register("run") {
     }
 }
 
-tasks.register("delete") {
-    it.doLast {
+def delete = tasks.register("delete") {
+    doLast {
         exec {
             workingDir workDir
             commandLine 'skaffold', 'delete'

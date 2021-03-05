@@ -17,6 +17,12 @@ http $INVOKER
 http $INVOKER/ping
 http $INVOKER/update Authorization:user1 id=123 name=kjell
 
+
+
+http $ENVOY/update Authorization:user1 id=123 name=kjell
+
+
+
 ```
 
 Delete the function pod:
