@@ -12,6 +12,10 @@ spec:
   containers:
     - name: invoker
       image: materialized-invoker
+#      TODO: pull from manifest.yaml
+      env:
+        - name: AUTHZ_BASE_URL
+          value: http://authz:8081
       ports:
         - name: http
           containerPort: 8080

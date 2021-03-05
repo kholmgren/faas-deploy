@@ -19,8 +19,8 @@ http $INVOKER/update Authorization:user1 id=123 name=kjell
 
 
 
-http $ENVOY/update Authorization:user1 id=123 name=kjell
-
+http $ENVOY/create Authorization:user1 name=kjell
+http $ENVOY/update Authorization:user1 id=5b842ed5-4a38-4617-bb4c-a844f3ccfc4a name=otto
 
 
 ```
