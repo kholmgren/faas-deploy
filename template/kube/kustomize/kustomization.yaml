@@ -6,6 +6,9 @@ resources:
   - invoker-service.yaml
 
 configMapGenerator:
-- name: manifest-config
+- name: manifest-configmap
   files:
   - manifest.yaml
+- name: envoy-configmap
+  files:
+    - envoy.yaml

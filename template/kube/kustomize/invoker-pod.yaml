@@ -6,37 +6,45 @@ metadata:
     app: invoker
 spec:
   volumes:
-    - name: manifest-data
+    - name: manifest-volume
       configMap:
-        name: manifest-config
-    - name: envoy-data
-      emptyDir: {}
+        name: manifest-configmap
+    - name: envoy-volume
+      configMap:
+        name: envoy-configmap
     - name: secret-volume
       secret:
         secretName: sleep-secret
         optional: true
 
   containers:
+    # for debug only--remove later
     - name: sleep
       image: curlimages/curl
       command: ["/bin/sleep", "3650d"]
       volumeMounts:
       - mountPath: /etc/sleep/tls
         name: secret-volume
-      - name: envoy-data
+      - name: envoy-volume
         mountPath: /etc/envoy
-      - name: manifest-data
+      - name: manifest-volume
         mountPath: /etc/faas
 
     - name: envoy
       image: docker.io/envoyproxy/envoy:v1.17-latest
+      args: [
+          "-c", "/etc/envoy/envoy.yaml",
+          "-l", "off",
+          "--component-log-level", "upstream:debug,connection:trace",
+          "--service-node", "front-proxy",
+          "--service-cluster", "front-proxy" ]
       ports:
         - name: http
           containerPort: 18000
           protocol: TCP
       resources: { }
       volumeMounts:
-        - name: envoy-data
+        - name: envoy-volume
           mountPath: /etc/envoy
     - name: invoker
       image: materialized-invoker
@@ -48,19 +56,9 @@ spec:
         - name: http
           containerPort: 8080
           protocol: TCP
+        - name: envoy-grpc
+          containerPort: 9000
+          protocol: TCP
       volumeMounts:
-        - name: manifest-data
+        - name: manifest-volume
           mountPath: /etc/faas
-  initContainers:
-    - name: envoy-init
-      image: docker.io/kettil/faas-envoy-init
-      env:
-        - name: MANIFEST_FILE
-          value: /etc/faas/manifest.yaml
-        - name: ENVOY_CONFIG_FILE
-          value: /etc/envoy/envoy.yaml
-      volumeMounts:
-        - name: manifest-data
-          mountPath: /etc/faas
-        - name: envoy-data
-          mountPath: /etc/envoy
