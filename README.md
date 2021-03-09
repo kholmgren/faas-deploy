@@ -8,6 +8,10 @@ Build and deploy the function pod:
 Test the function pod:
 ```bash
 INVOKER=$(kc get service invoker -o=jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+# or if you're using Minikube and can't use its tunnel:
+INGRESS=$(minikube service invoker --url)
+
 echo "INVOKER: $INVOKER"
 
 http $INVOKER/create Authorization:user1 name=kjell
